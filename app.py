@@ -7,6 +7,7 @@ st.set_page_config(page_title="Bolig-kalkulator", layout="wide")
 st.title("Boligkalkulator")
 st.write("Beregn egenkapital, lånekostnader, total EK-belastning og netto kontantstrøm før skatt.")
 
+
 # -------------------------
 # Hjelpefunksjoner
 # -------------------------
@@ -155,6 +156,7 @@ repayment_years = st.sidebar.number_input(
     step=1,
 )
 
+
 # -------------------------
 # Beregninger: EK og finansiering
 # -------------------------
@@ -165,16 +167,12 @@ max_loan_amount = purchase_price * (max_ltv_percent / 100)
 purchase_gap_due_to_loan_limit = max(0, purchase_price - max_loan_amount - required_equity_base)
 
 minimum_cash_needed_to_close = purchase_price + closing_costs - max_loan_amount
-
-# Total egenkapital som faktisk må inn for å gjennomføre kjøpet:
-# enten ordinært EK-krav + omkostninger, eller mer hvis lånet er mer begrenset
 total_equity_needed = required_equity_base + closing_costs + purchase_gap_due_to_loan_limit
-
-# Faktisk lånebeløp ved kjøpet
 loan_amount = min(max_loan_amount, purchase_price)
 
+
 # -------------------------
-# Beregninger: drift og yield
+# Beregninger: rente, drift og yield
 # -------------------------
 if rate_type == "Nominell rente":
     nominal_rate = rate_input
@@ -182,15 +180,11 @@ if rate_type == "Nominell rente":
     effective_rate = effective_rate * 100
 else:
     effective_rate = rate_input
-    nominal_rate = 12 * ((1 + effective_rate / 100) ** (1/12) - 1)
+    nominal_rate = 12 * ((1 + effective_rate / 100) ** (1 / 12) - 1)
     nominal_rate = nominal_rate * 100
 
 annual_rent = monthly_rent * 12
 gross_yield_percent = (annual_rent / purchase_price * 100) if purchase_price > 0 else 0.0
-
-annual_rent = monthly_rent * 12
-gross_yield_percent = (annual_rent / purchase_price * 100) if purchase_price > 0 else 0.0
-    gross_yield_percent = (annual_rent / purchase_price * 100) if purchase_price > 0 else 0.0
 
 monthly_operating_costs = electricity + common_costs + municipal_fees + other_costs
 
@@ -201,12 +195,10 @@ if loan_type == "Annuitetslån":
     loan_info_text = "Fast terminbeløp hver måned."
 else:
     first_total, first_principal, first_interest = serial_schedule_first_month(
-    loan_amount, nominal_rate, repayment_years
-)
-
-last_total, last_principal, last_interest = serial_schedule_last_month(
-    loan_amount, nominal_rate, repayment_years
-)
+        loan_amount, nominal_rate, repayment_years
+    )
+    last_total, last_principal, last_interest = serial_schedule_last_month(
+        loan_amount, nominal_rate, repayment_years
     )
     monthly_loan_cost = first_total
     monthly_principal_payment = first_principal
@@ -216,6 +208,7 @@ last_total, last_principal, last_interest = serial_schedule_last_month(
 monthly_cashflow_before_tax = monthly_rent - monthly_operating_costs - monthly_loan_cost
 annual_cashflow_before_tax = monthly_cashflow_before_tax * 12
 break_even_rent = monthly_operating_costs + monthly_loan_cost
+
 
 # -------------------------
 # Toppkort
@@ -235,6 +228,7 @@ with col4:
     st.metric("Totalt EK-behov", format_nok(total_equity_needed))
 
 st.divider()
+
 
 # -------------------------
 # EK-struktur + diagram
@@ -276,19 +270,8 @@ with right_top:
 
     fig, ax = plt.subplots(figsize=(5, 6))
 
-    ax.bar(
-        ["Totalt EK-behov"],
-        [ek_krav],
-        label="EK-krav"
-    )
-
-    ax.bar(
-        ["Totalt EK-behov"],
-        [omkost],
-        bottom=[ek_krav],
-        label="Omkostninger / dokumentavgift"
-    )
-
+    ax.bar(["Totalt EK-behov"], [ek_krav], label="EK-krav")
+    ax.bar(["Totalt EK-behov"], [omkost], bottom=[ek_krav], label="Omkostninger / dokumentavgift")
     ax.bar(
         ["Totalt EK-behov"],
         [ekstra_ek],
@@ -308,7 +291,6 @@ with right_top:
         fontweight="bold"
     )
 
-    # Tekst inni hver del av søylen
     if ek_krav > 0:
         ax.text(
             0,
@@ -352,34 +334,9 @@ with right_top:
     ax.spines["right"].set_visible(False)
 
     st.pyplot(fig)
-    st.subheader("Søylediagram: total EK-belastning")
-
-    chart_labels = [
-        "EK-krav",
-        "Omkost",
-        "Ekstra EK\nlånegrense",
-    ]
-    chart_values = [
-        required_equity_base,
-        closing_costs,
-        purchase_gap_due_to_loan_limit,
-    ]
-
-    fig, ax = plt.subplots(figsize=(7, 4))
-    bars = ax.bar(chart_labels, chart_values)
-    ax.set_ylabel("Beløp (kr)")
-    ax.set_title("Komponenter i total EK-belastning")
-
-    ax.bar_label(
-        bars,
-        labels=[format_nok(v) for v in chart_values],
-        padding=3,
-        fontsize=9,
-    )
-
-    st.pyplot(fig)
 
 st.divider()
+
 
 # -------------------------
 # Låneberegning og kontantstrøm
@@ -395,28 +352,31 @@ with left:
                 "Post": [
                     "Lånetype",
                     "Lånebeløp",
-                    "Rente",
+                    "Nominell rente",
+                    "Effektiv rente",
                     "Nedbetalingstid",
                     "Månedlig terminbeløp",
                 ],
                 "Verdi": [
                     loan_type,
                     format_nok(loan_amount),
-                    f"{interest_rate:.2f} %",
+                    f"{nominal_rate:.2f} %",
+                    f"{effective_rate:.2f} %",
                     f"{repayment_years} år",
                     format_nok(monthly_loan_cost),
                 ],
             }
         )
     else:
-        last_total, _, _ = serial_schedule_last_month(loan_amount, interest_rate, repayment_years)
+        last_total, _, _ = serial_schedule_last_month(loan_amount, nominal_rate, repayment_years)
 
         loan_df = pd.DataFrame(
             {
                 "Post": [
                     "Lånetype",
                     "Lånebeløp",
-                    "Rente",
+                    "Nominell rente",
+                    "Effektiv rente",
                     "Nedbetalingstid",
                     "Første måneds avdrag",
                     "Første måneds renter",
@@ -426,7 +386,8 @@ with left:
                 "Verdi": [
                     loan_type,
                     format_nok(loan_amount),
-                    f"{interest_rate:.2f} %",
+                    f"{nominal_rate:.2f} %",
+                    f"{effective_rate:.2f} %",
                     f"{repayment_years} år",
                     format_nok(monthly_principal_payment or 0),
                     format_nok(monthly_interest_payment or 0),
@@ -475,6 +436,7 @@ with right:
 
 st.divider()
 
+
 # -------------------------
 # Oppsummering
 # -------------------------
@@ -512,6 +474,7 @@ st.write(
 )
 
 st.divider()
+
 
 # -------------------------
 # Forklaringer
