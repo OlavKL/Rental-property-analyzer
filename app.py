@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Bolig-kalkulator", layout="wide")
 
-st.title("Utleiekalkulator")
+st.title("Boligkalkulator")
 st.write("Beregn egenkapital, lånekostnader, total EK-belastning og netto kontantstrøm før skatt.")
 
 # -------------------------
