@@ -134,7 +134,12 @@ loan_type = st.sidebar.selectbox(
     ["Annuitetslån", "Serielån"],
 )
 
-interest_rate = st.sidebar.number_input(
+rate_type = st.sidebar.selectbox(
+    "Rentetype",
+    ["Nominell rente", "Effektiv rente"]
+)
+
+rate_input = st.sidebar.number_input(
     "Rente (%)",
     min_value=0.0,
     max_value=20.0,
