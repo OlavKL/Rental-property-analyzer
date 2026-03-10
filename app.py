@@ -176,8 +176,21 @@ loan_amount = min(max_loan_amount, purchase_price)
 # -------------------------
 # Beregninger: drift og yield
 # -------------------------
+if rate_type == "Nominell rente":
+    nominal_rate = rate_input
+    effective_rate = (1 + nominal_rate / 100 / 12) ** 12 - 1
+    effective_rate = effective_rate * 100
+else:
+    effective_rate = rate_input
+    nominal_rate = 12 * ((1 + effective_rate / 100) ** (1/12) - 1)
+    nominal_rate = nominal_rate * 100
+
 annual_rent = monthly_rent * 12
 gross_yield_percent = (annual_rent / purchase_price * 100) if purchase_price > 0 else 0.0
+
+annual_rent = monthly_rent * 12
+gross_yield_percent = (annual_rent / purchase_price * 100) if purchase_price > 0 else 0.0
+    gross_yield_percent = (annual_rent / purchase_price * 100) if purchase_price > 0 else 0.0
 
 monthly_operating_costs = electricity + common_costs + municipal_fees + other_costs
 
@@ -188,10 +201,12 @@ if loan_type == "Annuitetslån":
     loan_info_text = "Fast terminbeløp hver måned."
 else:
     first_total, first_principal, first_interest = serial_schedule_first_month(
-        loan_amount, interest_rate, repayment_years
-    )
-    last_total, last_principal, last_interest = serial_schedule_last_month(
-        loan_amount, interest_rate, repayment_years
+    loan_amount, nominal_rate, repayment_years
+)
+
+last_total, last_principal, last_interest = serial_schedule_last_month(
+    loan_amount, nominal_rate, repayment_years
+)
     )
     monthly_loan_cost = first_total
     monthly_principal_payment = first_principal
