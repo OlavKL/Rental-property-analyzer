@@ -182,7 +182,7 @@ gross_yield_percent = (annual_rent / purchase_price * 100) if purchase_price > 0
 monthly_operating_costs = electricity + common_costs + municipal_fees + other_costs
 
 if loan_type == "Annuitetslån":
-    monthly_loan_cost = annuity_payment(loan_amount, nominal_rate, repayment_years)    
+    monthly_loan_cost = annuity_payment(loan_amount, nominal_rate, repayment_years)
     monthly_principal_payment = None
     monthly_interest_payment = None
     loan_info_text = "Fast terminbeløp hver måned."
