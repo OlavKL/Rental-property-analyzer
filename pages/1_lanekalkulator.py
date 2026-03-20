@@ -243,23 +243,30 @@ st.divider()
 
 
 # -------------------------
-# Graf: renter vs avdrag første 24 måneder
+# Graf: renter vs avdrag (hele perioden)
 # -------------------------
-st.subheader("Renter og avdrag")
+st.subheader("Renter og avdrag over tid")
 
-months_to_plot = min(24, len(ann_df))
+fig2, ax2 = plt.subplots(figsize=(11, 5.5))
 
-fig2, ax2 = plt.subplots(figsize=(10, 5))
-ax2.plot(ann_df["Måned"][:months_to_plot], ann_df["Renter"][:months_to_plot], label="Annuitet - renter")
-ax2.plot(ann_df["Måned"][:months_to_plot], ann_df["Avdrag"][:months_to_plot], label="Annuitet - avdrag")
-ax2.plot(ser_df["Måned"][:months_to_plot], ser_df["Renter"][:months_to_plot], label="Serie - renter")
-ax2.plot(ser_df["Måned"][:months_to_plot], ser_df["Avdrag"][:months_to_plot], label="Serie - avdrag")
-ax2.set_xlabel("Måned")
+ax2.plot(ann_df["År"], ann_df["Renter"], label="Annuitet - renter", linewidth=2)
+ax2.plot(ann_df["År"], ann_df["Avdrag"], label="Annuitet - avdrag", linewidth=2)
+
+ax2.plot(ser_df["År"], ser_df["Renter"], label="Serie - renter", linewidth=2)
+ax2.plot(ser_df["År"], ser_df["Avdrag"], label="Serie - avdrag", linewidth=2)
+
+ax2.set_xlabel("År")
 ax2.set_ylabel("Beløp (kr)")
-ax2.set_title("Renter og avdrag de første 24 månedene")
+ax2.set_title("Renter og avdrag over hele låneperioden")
+
+ax2.set_xlim(0, repayment_years)
+ax2.set_xticks(range(0, repayment_years + 1, 5))
+ax2.grid(True, linestyle="--", alpha=0.5)
+
 ax2.legend()
 ax2.spines["top"].set_visible(False)
 ax2.spines["right"].set_visible(False)
+
 st.pyplot(fig2)
 
 st.divider()
