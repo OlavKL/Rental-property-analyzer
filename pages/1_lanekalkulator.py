@@ -136,11 +136,17 @@ show_months = st.sidebar.slider(
 ann_df = annuity_schedule(loan_amount, rate_input, repayment_years)
 ser_df = serial_schedule(loan_amount, rate_input, repayment_years)
 
+ann_df["År"] = ann_df["Måned"] / 12
+ser_df["År"] = ser_df["Måned"] / 12
+
 ann_total_paid = ann_df["Terminbeløp"].sum()
 ann_total_interest = ann_df["Renter"].sum()
 
 ser_total_paid = ser_df["Terminbeløp"].sum()
 ser_total_interest = ser_df["Renter"].sum()
+
+ann_payback_ratio = ann_total_paid / loan_amount if loan_amount > 0 else 0
+ser_payback_ratio = ser_total_paid / loan_amount if loan_amount > 0 else 0
 
 ann_first_payment = ann_df.iloc[0]["Terminbeløp"] if not ann_df.empty else 0
 ser_first_payment = ser_df.iloc[0]["Terminbeløp"] if not ser_df.empty else 0
@@ -200,6 +206,13 @@ if ser_total_interest < ann_total_interest:
         f"Serielån gir lavere total rentekostnad enn annuitetslån, med omtrent {format_nok(ann_total_interest - ser_total_interest)} lavere renter totalt."
     )
 
+st.markdown(
+    f"""
+- **Annuitetslån:** For hver 1 kr du låner, betaler du tilbake omtrent **{ann_payback_ratio:.2f} kr**
+- **Serielån:** For hver 1 kr du låner, betaler du tilbake omtrent **{ser_payback_ratio:.2f} kr**
+"""
+)
+
 st.divider()
 
 
@@ -209,11 +222,11 @@ st.divider()
 st.subheader("Terminbeløp over tid")
 
 fig1, ax1 = plt.subplots(figsize=(10, 5))
-ax1.plot(ann_df["Måned"], ann_df["Terminbeløp"], label="Annuitetslån")
-ax1.plot(ser_df["Måned"], ser_df["Terminbeløp"], label="Serielån")
-ax1.set_xlabel("Måned")
+ax1.plot(ann_df["År"], ann_df["Terminbeløp"], label="Annuitetslån")
+ax1.plot(ser_df["År"], ser_df["Terminbeløp"], label="Serielån")
+ax1.set_xlabel("År")
 ax1.set_ylabel("Beløp (kr)")
-ax1.set_title("Terminbeløp per måned")
+ax1.set_title("Terminbeløp over tid")
 ax1.legend()
 ax1.spines["top"].set_visible(False)
 ax1.spines["right"].set_visible(False)
