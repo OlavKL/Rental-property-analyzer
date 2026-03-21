@@ -2,9 +2,9 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 
-st.set_page_config(page_title="Bolig-kalkulator", layout="wide")
+st.set_page_config(page_title="Utleie-kalkulator", layout="wide")
 
-st.title("Boligkalkulator")
+st.title("Utleiekalkulator")
 st.write("Beregn egenkapital, lånekostnader, total EK-belastning og netto kontantstrøm før skatt.")
 
 
