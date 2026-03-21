@@ -277,7 +277,11 @@ with col4:
     st.metric("Netto kontantstrøm / mnd", format_nok(monthly_cashflow_before_tax))
 
 with col5:
-    st.metric("Tåler rentehopp", f"{rate_hikes_tolerated} stk")
+    st.metric(
+        "Rente-stresstest",
+        f"{rate_hikes_tolerated} stk",
+        help="Antall rentehopp (0,25 %-poeng økninger) en tåler før månedlig netto kontantstrøm blir negativ."
+    )
 
 st.caption(
     f"Rentehopp = 0,25 %-poeng. Med dagens forutsetninger tåler caset rente opp til ca. {max_tolerated_nominal_rate:.2f} % nominell rente før netto månedlig kontantstrøm blir negativ."
