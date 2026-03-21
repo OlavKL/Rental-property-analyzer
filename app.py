@@ -278,10 +278,7 @@ with col1:
         help=format_nok(purchase_price)
     )
 
-    st.markdown(
-        f"<span style='font-size:16px; color:#666;'>Kontantbehov: {format_nok(total_equity_needed)}</span>",
-        unsafe_allow_html=True
-    )
+    st.caption(f"Kontantbehov: {format_nok(total_equity_needed)}")
 
 with col2:
    st.metric(
