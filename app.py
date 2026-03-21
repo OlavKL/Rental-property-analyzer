@@ -79,12 +79,12 @@ equity_percent = st.sidebar.slider(
     step=1,
 )
 
-max_ltv_percent = st.sidebar.slider(
-    "Maks belåning (%)",
+max_loan_amount = st.sidebar.number_input(
+    "Maks lån",
     min_value=0,
-    max_value=100,
-    value=85,
-    step=1,
+    value=2_700_000,
+    step=50_000,
+
 )
 
 closing_cost_percent = st.sidebar.number_input(
