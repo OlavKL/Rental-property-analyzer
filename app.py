@@ -315,7 +315,13 @@ st.divider()
 left_top, right_top = st.columns([1, 1])
 
 with left_top:
-st.subheader(f"Kontantbehov: {format_nok(total_equity_needed)}")
+    st.subheader(f"Kontantbehov: {format_nok(total_equity_needed)}")
+
+    ek_krav = required_equity_base
+    omkost = closing_costs
+    ekstra_ek = purchase_gap_due_to_loan_limit
+
+    fig, ax = plt.subplots(figsize=(5, 6))
 
     ek_krav = required_equity_base
     omkost = closing_costs
