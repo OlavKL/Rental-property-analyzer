@@ -289,7 +289,11 @@ with col3:
     st.metric("Break-even leie", format_nok(break_even_rent))
 
 with col4:
-    st.metric("Netto kontantstrøm / mnd", format_nok(monthly_cashflow_before_tax))
+    st.metric(
+        "Netto kontantstrøm / mnd",
+        format_nok(monthly_cashflow_before_tax),
+        help="Leie minus alle kostnader inkludert strøm, felleskostnader, avgifter og hele terminbeløpet på lånet (både renter og avdrag). Viser faktisk penger inn/ut av konto per måned."
+    )
 
 with col5:
     st.metric(
