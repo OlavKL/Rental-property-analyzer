@@ -273,7 +273,11 @@ st.subheader("Nøkkeltall")
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    st.metric("Kjøpesum", format_nok(purchase_price))
+    st.metric(
+        "Kjøpesum",
+        format_mill(purchase_price),
+        help=format_nok(purchase_price)
+    )
 
 with col2:
    st.metric(
