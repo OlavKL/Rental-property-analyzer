@@ -94,6 +94,13 @@ def format_nok(value: float) -> str:
     return f"{sign}{abs(value):,.0f} kr".replace(",", " ")
 
 
+def format_mill(value: float) -> str:
+    if value >= 1_000_000:
+        mill = value / 1_000_000
+        return f"{mill:.3f}".rstrip("0").rstrip(".") + " mill"
+    else:
+        return format_nok(value)
+
 # -------------------------
 # Sidebar / input
 # -------------------------
@@ -272,7 +279,7 @@ with col2:
    st.metric(
     "Brutto yield",
     f"{gross_yield_percent:.2f} %",
-    help="Årlig leie delt på kjøpesum + omkostninger. Løpende kostnader er ikke inkludert."
+    help="(Månedlig leie × 12) / (kjøpesum + omkostninger). Løpende kostnader er ikke inkludert."
 )
 
 with col3:
