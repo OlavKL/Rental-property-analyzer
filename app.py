@@ -54,6 +54,41 @@ def serial_schedule_last_month(principal: float, annual_rate_percent: float, yea
     return last_month_total, monthly_principal, last_month_interest
 
 
+def monthly_payment_by_loan_type(principal: float, annual_rate_percent: float, years: int, loan_type: str) -> float:
+    if loan_type == "Annuitetslån":
+        return annuity_payment(principal, annual_rate_percent, years)
+    else:
+        first_total, _, _ = serial_schedule_first_month(principal, annual_rate_percent, years)
+        return first_total
+
+
+def calculate_rate_hikes_tolerated(
+    loan_amount: float,
+    base_nominal_rate: float,
+    repayment_years: int,
+    loan_type: str,
+    monthly_rent: float,
+    monthly_operating_costs: float,
+    step_size: float = 0.25,
+    max_steps: int = 100,
+) -> int:
+    tolerated_steps = 0
+
+    for step in range(1, max_steps + 1):
+        test_rate = base_nominal_rate + step * step_size
+        test_monthly_loan_cost = monthly_payment_by_loan_type(
+            loan_amount, test_rate, repayment_years, loan_type
+        )
+        test_cashflow = monthly_rent - monthly_operating_costs - test_monthly_loan_cost
+
+        if test_cashflow >= 0:
+            tolerated_steps += 1
+        else:
+            break
+
+    return tolerated_steps
+
+
 def format_nok(value: float) -> str:
     sign = "-" if value < 0 else ""
     return f"{sign}{abs(value):,.0f} kr".replace(",", " ")
@@ -84,7 +119,6 @@ max_loan_amount = st.sidebar.number_input(
     min_value=0,
     value=2_700_000,
     step=50_000,
-
 )
 
 closing_cost_percent = st.sidebar.number_input(
@@ -163,12 +197,12 @@ repayment_years = st.sidebar.number_input(
 closing_costs = purchase_price * (closing_cost_percent / 100)
 required_equity_base = purchase_price * (equity_percent / 100)
 
-max_ltv_percent = (max_loan_amount / purchase_price * 100) if purchase_price > 0 else 0
-purchase_gap_due_to_loan_limit = max(0, purchase_price - max_loan_amount - required_equity_base)
+loan_amount = min(max_loan_amount, purchase_price)
+ltv_percent = (loan_amount / purchase_price * 100) if purchase_price > 0 else 0.0
 
+purchase_gap_due_to_loan_limit = max(0, purchase_price - max_loan_amount - required_equity_base)
 minimum_cash_needed_to_close = purchase_price + closing_costs - max_loan_amount
 total_equity_needed = required_equity_base + closing_costs + purchase_gap_due_to_loan_limit
-loan_amount = min(max_loan_amount, purchase_price)
 
 
 # -------------------------
@@ -209,23 +243,45 @@ monthly_cashflow_before_tax = monthly_rent - monthly_operating_costs - monthly_l
 annual_cashflow_before_tax = monthly_cashflow_before_tax * 12
 break_even_rent = monthly_operating_costs + monthly_loan_cost
 
+rate_hikes_tolerated = calculate_rate_hikes_tolerated(
+    loan_amount=loan_amount,
+    base_nominal_rate=nominal_rate,
+    repayment_years=repayment_years,
+    loan_type=loan_type,
+    monthly_rent=monthly_rent,
+    monthly_operating_costs=monthly_operating_costs,
+    step_size=0.25,
+    max_steps=100,
+)
+
+max_tolerated_nominal_rate = nominal_rate + rate_hikes_tolerated * 0.25
+
 
 # -------------------------
-# Toppkort
+# Viktigste nøkkeltall først
 # -------------------------
-col1, col2, col3, col4 = st.columns(4)
+st.subheader("Nøkkeltall")
+
+col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     st.metric("Kjøpesum", format_nok(purchase_price))
 
 with col2:
-    st.metric("Maks lån", format_nok(max_loan_amount))
+    st.metric("Brutto yield", f"{gross_yield_percent:.2f} %")
 
 with col3:
-    st.metric("Omkostninger", format_nok(closing_costs))
+    st.metric("Break-even leie", format_nok(break_even_rent))
 
 with col4:
-    st.metric("Totalt EK-behov", format_nok(total_equity_needed))
+    st.metric("Netto kontantstrøm / mnd", format_nok(monthly_cashflow_before_tax))
+
+with col5:
+    st.metric("Tåler rentehopp", f"{rate_hikes_tolerated} stk")
+
+st.caption(
+    f"Rentehopp = 0,25 %-poeng. Med dagens forutsetninger tåler caset rente opp til ca. {max_tolerated_nominal_rate:.2f} % nominell rente før netto månedlig kontantstrøm blir negativ."
+)
 
 st.divider()
 
@@ -240,24 +296,24 @@ with left_top:
 
     equity_df = pd.DataFrame(
         {
-           "Post": [
-    "EK-krav",
-    "Omkostninger / dokumentavgift",
-    "Ekstra EK pga. lånebegrensning",
-    "Totalt EK-behov",
-    "Maks lån",
-    "Belåningsgrad",
-    "Minimum kontantbehov for å lukke kjøpet",
-],
-"Verdi": [
-    format_nok(required_equity_base),
-    format_nok(closing_costs),
-    format_nok(purchase_gap_due_to_loan_limit),
-    format_nok(total_equity_needed),
-    format_nok(max_loan_amount),
-    f"{max_ltv_percent:.1f} %",
-    format_nok(minimum_cash_needed_to_close),
-],
+            "Post": [
+                "EK-krav",
+                "Omkostninger / dokumentavgift",
+                "Ekstra EK pga. lånebegrensning",
+                "Totalt EK-behov",
+                "Maks lån",
+                "Belåningsgrad",
+                "Minimum kontantbehov for å lukke kjøpet",
+            ],
+            "Verdi": [
+                format_nok(required_equity_base),
+                format_nok(closing_costs),
+                format_nok(purchase_gap_due_to_loan_limit),
+                format_nok(total_equity_needed),
+                format_nok(max_loan_amount),
+                f"{ltv_percent:.1f} %",
+                format_nok(minimum_cash_needed_to_close),
+            ],
         }
     )
 
@@ -354,6 +410,7 @@ with left:
                 "Post": [
                     "Lånetype",
                     "Lånebeløp",
+                    "Belåningsgrad",
                     "Nominell rente",
                     "Effektiv rente",
                     "Nedbetalingstid",
@@ -362,6 +419,7 @@ with left:
                 "Verdi": [
                     loan_type,
                     format_nok(loan_amount),
+                    f"{ltv_percent:.1f} %",
                     f"{nominal_rate:.2f} %",
                     f"{effective_rate:.2f} %",
                     f"{repayment_years} år",
@@ -377,6 +435,7 @@ with left:
                 "Post": [
                     "Lånetype",
                     "Lånebeløp",
+                    "Belåningsgrad",
                     "Nominell rente",
                     "Effektiv rente",
                     "Nedbetalingstid",
@@ -388,6 +447,7 @@ with left:
                 "Verdi": [
                     loan_type,
                     format_nok(loan_amount),
+                    f"{ltv_percent:.1f} %",
                     f"{nominal_rate:.2f} %",
                     f"{effective_rate:.2f} %",
                     f"{repayment_years} år",
@@ -449,7 +509,7 @@ if purchase_gap_due_to_loan_limit > 0:
         f"Lånegrensen gjør at du må skyte inn ekstra {format_nok(purchase_gap_due_to_loan_limit)} utover ordinært EK-krav."
     )
 else:
-    st.success("Maks belåning er høy nok til å dekke kjøpet innenfor valgt EK-krav.")
+    st.success("Maks lån er høy nok til å dekke kjøpet innenfor valgt EK-krav.")
 
 if monthly_cashflow_before_tax > 0:
     st.success(
@@ -464,14 +524,18 @@ else:
 
 st.write(
     f"""
+- **Kjøpesum:** {format_nok(purchase_price)}
 - **Lånebeløp:** {format_nok(loan_amount)}
+- **Belåningsgrad:** {ltv_percent:.1f} %
 - **EK-krav:** {format_nok(required_equity_base)}
 - **Omkostninger:** {format_nok(closing_costs)}
 - **Ekstra EK pga. lånegrense:** {format_nok(purchase_gap_due_to_loan_limit)}
 - **Totalt EK-behov:** {format_nok(total_equity_needed)}
 - **Månedlige driftskostnader ekskl. lån:** {format_nok(monthly_operating_costs)}
 - **Break-even leie:** {format_nok(break_even_rent)} per måned
+- **Prosjektert netto kontantstrøm:** {format_nok(monthly_cashflow_before_tax)} per måned
 - **Brutto yield:** {gross_yield_percent:.2f} %
+- **Antall rentehopp på 0,25 %-poeng du tåler:** {rate_hikes_tolerated}
 """
 )
 
@@ -484,16 +548,20 @@ st.divider()
 with st.expander("Hva betyr tallene?"):
     st.write(
         """
+**Brutto yield** = årlig leieinntekt delt på kjøpesum.
+
+**Break-even leie** = hvor høy leien må være for at kontantstrøm før skatt blir 0.
+
+**Prosjektert netto kontantstrøm per måned** = leie minus lånekostnader og øvrige månedlige kostnader.
+
+**Antall rentehopp du tåler** = hvor mange hopp på 0,25 %-poeng renten kan øke før netto månedlig kontantstrøm blir negativ.
+
 **EK-krav** = prosentandel av kjøpesummen du må dekke med egenkapital.
 
 **Omkostninger / dokumentavgift** = transaksjonskostnader som kommer i tillegg til kjøpesummen.
 
-**Ekstra EK pga. lånebegrensning** = ekstra kontanter du må legge inn hvis valgt maks belåning er lavere enn det som trengs for å finansiere kjøpet.
+**Ekstra EK pga. lånebegrensning** = ekstra kontanter du må legge inn hvis maks lån er lavere enn det som trengs for å finansiere kjøpet.
 
 **Totalt EK-behov** = EK-krav + omkostninger + eventuelt ekstra tilskudd fordi lånet ikke dekker nok.
-
-**Netto kontantstrøm før skatt** = leie minus lånekostnader og øvrige månedlige kostnader.
-
-**Break-even leie** = hvor høy leien må være for at kontantstrøm før skatt blir 0.
 """
     )
