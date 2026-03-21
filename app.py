@@ -315,34 +315,6 @@ st.divider()
 left_top, right_top = st.columns([1, 1])
 
 with left_top:
-    st.subheader("EK-struktur")
-
-    equity_df = pd.DataFrame(
-        {
-            "Post": [
-                "EK-krav",
-                "Omkostninger / dokumentavgift",
-                "Ekstra EK pga. lånebegrensning",
-                "Totalt EK-behov",
-                "Maks lån",
-                "Belåningsgrad",
-                "Minimum kontantbehov for å lukke kjøpet",
-            ],
-            "Verdi": [
-                format_nok(required_equity_base),
-                format_nok(closing_costs),
-                format_nok(purchase_gap_due_to_loan_limit),
-                format_nok(total_equity_needed),
-                format_nok(max_loan_amount),
-                f"{ltv_percent:.1f} %",
-                format_nok(minimum_cash_needed_to_close),
-            ],
-        }
-    )
-
-    st.dataframe(equity_df, use_container_width=True, hide_index=True)
-
-with right_top:
     st.subheader("Total EK for å lukke kjøpet")
 
     ek_krav = required_equity_base
@@ -415,8 +387,35 @@ with right_top:
 
     st.pyplot(fig)
 
-st.divider()
+with right_top:
+    st.subheader("EK-struktur")
 
+    equity_df = pd.DataFrame(
+        {
+            "Post": [
+                "EK-krav",
+                "Omkostninger / dokumentavgift",
+                "Ekstra EK pga. lånebegrensning",
+                "Totalt EK-behov",
+                "Maks lån",
+                "Belåningsgrad",
+                "Minimum kontantbehov for å lukke kjøpet",
+            ],
+            "Verdi": [
+                format_nok(required_equity_base),
+                format_nok(closing_costs),
+                format_nok(purchase_gap_due_to_loan_limit),
+                format_nok(total_equity_needed),
+                format_nok(max_loan_amount),
+                f"{ltv_percent:.1f} %",
+                format_nok(minimum_cash_needed_to_close),
+            ],
+        }
+    )
+
+    st.dataframe(equity_df, use_container_width=True, hide_index=True)
+
+st.divider()
 
 # -------------------------
 # Låneberegning og kontantstrøm
