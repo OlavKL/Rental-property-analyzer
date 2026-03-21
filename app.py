@@ -315,7 +315,7 @@ st.divider()
 left_top, right_top = st.columns([1, 1])
 
 with left_top:
-    st.subheader("Total EK for å lukke kjøpet")
+st.subheader(f"Kontantbehov: {format_nok(total_equity_needed)}")
 
     ek_krav = required_equity_base
     omkost = closing_costs
