@@ -126,36 +126,46 @@ def get_remaining_debt(loan_df: pd.DataFrame, year: int, start_debt: float) -> f
 
 
 # -------------------------
-# Sidebar / input
+# Inntekter
 # -------------------------
-st.sidebar.header("Inntekter")
+st.subheader("Inntekter")
 
-num_incomes = st.sidebar.number_input(
-    "Antall inntekter",
-    min_value=1,
-    max_value=8,
-    value=2,
-    step=1,
-)
+if "income_count" not in st.session_state:
+    st.session_state.income_count = 1
 
 income_rows = []
 total_annual_income = 0.0
 
-for i in range(num_incomes):
-    st.sidebar.markdown(f"**Inntekt {i+1}**")
-    income_name = st.sidebar.text_input(f"Navn på inntekt {i+1}", value=f"Inntekt {i+1}", key=f"income_name_{i}")
-    income_amount = st.sidebar.number_input(
-        f"Beløp for {income_name}",
-        min_value=0,
-        value=300_000 if i == 0 else 100_000,
-        step=10_000,
-        key=f"income_amount_{i}",
-    )
-    income_period = st.sidebar.selectbox(
-        f"Er {income_name} månedlig eller årlig?",
-        ["Årlig", "Månedlig"],
-        key=f"income_period_{i}",
-    )
+for i in range(st.session_state.income_count):
+    st.markdown(f"**Inntekt {i+1}**")
+
+    col1, col2 = st.columns([2.2, 1.2])
+
+    with col1:
+        income_name = st.text_input(
+            f"Navn på inntekt {i+1}",
+            value=f"Inntekt {i+1}",
+            key=f"income_name_{i}",
+            label_visibility="collapsed"
+        )
+
+        income_amount = st.number_input(
+            f"Beløp {i+1}",
+            min_value=0,
+            value=300_000 if i == 0 else 100_000,
+            step=10_000,
+            key=f"income_amount_{i}",
+            label_visibility="collapsed"
+        )
+
+    with col2:
+        income_period = st.radio(
+            f"Periode {i+1}",
+            ["Årlig", "Månedlig"],
+            horizontal=True,
+            key=f"income_period_{i}",
+            label_visibility="collapsed"
+        )
 
     annualized = to_annual_income(income_amount, income_period)
     total_annual_income += annualized
@@ -166,6 +176,14 @@ for i in range(num_incomes):
         "Periode": income_period,
         "Årsinntekt": format_nok(annualized),
     })
+
+    st.markdown("<div style='margin-bottom: 6px;'></div>", unsafe_allow_html=True)
+
+col_add_1, col_add_2, col_add_3 = st.columns([1, 1, 4])
+with col_add_1:
+    if st.button("Legg til inntekt"):
+        st.session_state.income_count += 1
+        st.rerun()
 
 st.sidebar.divider()
 st.sidebar.header("Gjeld og egenkapital")
