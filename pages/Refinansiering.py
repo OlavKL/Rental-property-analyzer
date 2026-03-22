@@ -214,13 +214,7 @@ equity = st.sidebar.number_input(
     step=50_000,
 )
 
-income_multiple = st.sidebar.number_input(
-    "Inntektsmultippel",
-    min_value=0.0,
-    max_value=10.0,
-    value=5.0,
-    step=0.1,
-)
+
 
 st.sidebar.divider()
 st.sidebar.header("Bolig / eksisterende lån")
