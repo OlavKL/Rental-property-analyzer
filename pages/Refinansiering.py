@@ -370,6 +370,12 @@ extractable_equity = max(0.0, max_loan_on_property - remaining_debt)
 rent_based_extra_capacity = monthly_rent * rent_factor
 total_loan_capacity_after_rent = income_based_max_loan + rent_based_extra_capacity
 
+future_available_loan_capacity = max(0.0, total_loan_capacity_after_rent - remaining_debt)
+current_available_loan_capacity = max(0.0, total_loan_capacity_after_rent - current_loan_amount)
+
+is_currently_capped = current_loan_amount >= total_loan_capacity_after_rent
+is_future_capped = remaining_debt >= total_loan_capacity_after_rent
+
 current_ltv = (current_loan_amount / property_value_today * 100) if property_value_today > 0 else 0.0
 future_ltv = (remaining_debt / future_property_value * 100) if future_property_value > 0 else 0.0
 
@@ -395,7 +401,7 @@ st.divider()
 # -------------------------
 st.subheader("Eiendomsanalyse")
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 
 with c1:
     st.metric(f"Verdi etter {years_forward} år", format_mill(future_property_value))
@@ -409,6 +415,9 @@ with c3:
 with c4:
     st.metric("Økt lånekapasitet fra leie", format_mill(rent_based_extra_capacity))
 
+with c5:
+    st.metric("Ledig lånekapasitet", format_mill(future_available_loan_capacity))
+    
 st.markdown(
     f"""
 - **Kjøpsår:** {purchase_year}
