@@ -1,6 +1,12 @@
-import pandas as pd
-import streamlit as st
+import json
+import re
+from urllib.parse import urlparse, urlunparse
+
 import matplotlib.pyplot as plt
+import pandas as pd
+import requests
+import streamlit as st
+from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="Utleie-kalkulator", layout="wide")
 
@@ -9,7 +15,223 @@ st.write("Beregn egenkapital, lånekostnader, total EK-belastning og netto konta
 
 
 # -------------------------
-# Hjelpefunksjoner
+# Hjelpefunksjoner: FINN-url
+# -------------------------
+def normalize_url(url: str) -> str:
+    url = url.strip()
+    if not url:
+        return ""
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    parsed = urlparse(url)
+    cleaned = parsed._replace(fragment="")
+    return urlunparse(cleaned)
+
+
+def fetch_html(url: str) -> str:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0 Safari/537.36"
+        ),
+        "Accept-Language": "nb-NO,nb;q=0.9,en;q=0.8",
+    }
+    response = requests.get(url, headers=headers, timeout=15)
+    response.raise_for_status()
+    return response.text
+
+
+def clean_text(value):
+    if value is None:
+        return None
+    value = re.sub(r"\s+", " ", str(value)).strip()
+    return value or None
+
+
+def extract_first_number(text: str | None) -> int | None:
+    if not text:
+        return None
+    digits = re.sub(r"[^\d]", "", text)
+    if not digits:
+        return None
+    try:
+        return int(digits)
+    except ValueError:
+        return None
+
+
+def find_json_ld_objects(soup: BeautifulSoup) -> list[dict]:
+    objects = []
+    for script in soup.find_all("script", type="application/ld+json"):
+        raw = script.string or script.get_text(strip=True)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                objects.extend([x for x in data if isinstance(x, dict)])
+            elif isinstance(data, dict):
+                objects.append(data)
+        except Exception:
+            continue
+    return objects
+
+
+def recursive_find_value(obj, wanted_keys: set[str]):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k.lower() in wanted_keys:
+                return v
+            found = recursive_find_value(v, wanted_keys)
+            if found is not None:
+                return found
+    elif isinstance(obj, list):
+        for item in obj:
+            found = recursive_find_value(item, wanted_keys)
+            if found is not None:
+                return found
+    return None
+
+
+def normalize_ownership(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    v = value.lower().strip()
+
+    if "selveier" in v:
+        return "Selveier"
+    if "andel" in v:
+        return "Andel"
+    if "aksje" in v:
+        return "Aksje"
+    if "borettslag" in v:
+        return "Andel"
+    return clean_text(value)
+
+
+def extract_area_from_title(soup: BeautifulSoup) -> str | None:
+    title = ""
+    if soup.title and soup.title.string:
+        title = soup.title.string
+
+    title = clean_text(title) or ""
+
+    patterns = [
+        r"\|\s*([^|]+?)\s*-\s*FINN\.no",
+        r" - ([^-|]+?)\s*\|\s*FINN\.no",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, title, flags=re.IGNORECASE)
+        if match:
+            candidate = clean_text(match.group(1))
+            if candidate and len(candidate) <= 80:
+                return candidate
+    return None
+
+
+def parse_finn_page(html: str) -> dict:
+    soup = BeautifulSoup(html, "html.parser")
+    full_text = soup.get_text(" ", strip=True)
+    full_text = clean_text(full_text) or ""
+
+    result = {
+        "purchase_price": None,
+        "common_costs": None,
+        "area": None,
+        "ownership": None,
+    }
+
+    # 1) JSON-LD
+    jsonld_objects = find_json_ld_objects(soup)
+    jsonld_price = None
+    jsonld_area = None
+
+    for obj in jsonld_objects:
+        if jsonld_price is None:
+            jsonld_price = recursive_find_value(obj, {"price"})
+        if jsonld_area is None:
+            jsonld_area = recursive_find_value(obj, {"addresslocality", "addressregion", "locality"})
+        if jsonld_price is not None and jsonld_area is not None:
+            break
+
+    if jsonld_price is not None:
+        result["purchase_price"] = extract_first_number(str(jsonld_price))
+
+    if isinstance(jsonld_area, str):
+        result["area"] = clean_text(jsonld_area)
+
+    # 2) Pris: prøv totalpris først, deretter prisantydning
+    price_patterns = [
+        r"Totalpris\s*([\d\s\u00A0.,]+)\s*kr",
+        r"Prisantydning\s*([\d\s\u00A0.,]+)\s*kr",
+    ]
+    for pattern in price_patterns:
+        match = re.search(pattern, full_text, flags=re.IGNORECASE)
+        if match:
+            parsed_price = extract_first_number(match.group(1))
+            if parsed_price:
+                result["purchase_price"] = parsed_price
+                break
+
+    # 3) Felleskostnader
+    common_cost_patterns = [
+        r"Felleskost/mnd\.?\s*([\d\s\u00A0.,]+)\s*kr",
+        r"Felleskostnader\s*([\d\s\u00A0.,]+)\s*kr",
+        r"Felleskostnader pr\. mnd\.?\s*([\d\s\u00A0.,]+)\s*kr",
+        r"Felleskostnader per måned\s*([\d\s\u00A0.,]+)\s*kr",
+    ]
+    for pattern in common_cost_patterns:
+        match = re.search(pattern, full_text, flags=re.IGNORECASE)
+        if match:
+            parsed_common_costs = extract_first_number(match.group(1))
+            if parsed_common_costs is not None:
+                result["common_costs"] = parsed_common_costs
+                break
+
+    # 4) Eierform
+    ownership_patterns = [
+        r"Eierform\s*(Selveier)",
+        r"Eierform\s*(Andel)",
+        r"Eierform\s*(Aksje)",
+        r"Eierform\s*(Borettslag)",
+        r"\bselveier\b",
+        r"\bandel\b",
+        r"\baksje\b",
+        r"\bborettslag\b",
+    ]
+    for pattern in ownership_patterns:
+        match = re.search(pattern, full_text, flags=re.IGNORECASE)
+        if match:
+            ownership_raw = match.group(1) if match.groups() else match.group(0)
+            result["ownership"] = normalize_ownership(ownership_raw)
+            break
+
+    # 5) Område
+    if not result["area"]:
+        area_patterns = [
+            r"Område\s*([A-ZÆØÅa-zæøå0-9 ,\-/]+)",
+            r"Adresse\s*([A-ZÆØÅa-zæøå0-9 ,\-/]+)",
+        ]
+        for pattern in area_patterns:
+            match = re.search(pattern, full_text, flags=re.IGNORECASE)
+            if match:
+                candidate = clean_text(match.group(1))
+                if candidate and len(candidate) <= 100:
+                    result["area"] = candidate
+                    break
+
+    if not result["area"]:
+        result["area"] = extract_area_from_title(soup)
+
+    result["ownership"] = normalize_ownership(result["ownership"])
+    return result
+
+
+# -------------------------
+# Hjelpefunksjoner: kalkulator
 # -------------------------
 def annuity_payment(principal: float, annual_rate_percent: float, years: int) -> float:
     months = years * 12
@@ -101,6 +323,97 @@ def format_mill(value: float) -> str:
     else:
         return format_nok(value)
 
+
+# -------------------------
+# Session state defaults
+# -------------------------
+defaults = {
+    "purchase_price": 3_000_000,
+    "equity_percent": 15,
+    "max_loan_amount": 2_700_000,
+    "closing_cost_percent": 2.5,
+    "monthly_rent": 18_000,
+    "electricity": 1_000,
+    "common_costs": 2_500,
+    "municipal_fees": 800,
+    "other_costs": 500,
+    "loan_type": "Annuitetslån",
+    "rate_type": "Nominell rente",
+    "rate_input": 5.5,
+    "repayment_years": 30,
+    "finn_url": "",
+    "detected_area": "",
+    "detected_ownership": "",
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+# -------------------------
+# Sidebar: FINN-import
+# -------------------------
+st.sidebar.header("Hent fra FINN")
+st.sidebar.text_input(
+    "Lim inn FINN-url",
+    key="finn_url",
+    placeholder="https://www.finn.no/realestate/homes/ad.html?finnkode=..."
+)
+
+if st.sidebar.button("Hent fra annonse"):
+    url = normalize_url(st.session_state["finn_url"])
+
+    if not url:
+        st.sidebar.warning("Lim inn en URL først.")
+    else:
+        try:
+            html = fetch_html(url)
+            scraped = parse_finn_page(html)
+
+            found_anything = False
+
+            if scraped["purchase_price"] is not None:
+                st.session_state["purchase_price"] = scraped["purchase_price"]
+                found_anything = True
+
+            if scraped["common_costs"] is not None:
+                st.session_state["common_costs"] = scraped["common_costs"]
+                found_anything = True
+
+            if scraped["area"]:
+                st.session_state["detected_area"] = scraped["area"]
+                found_anything = True
+
+            if scraped["ownership"]:
+                st.session_state["detected_ownership"] = scraped["ownership"]
+                found_anything = True
+
+                if scraped["ownership"] in ["Andel", "Aksje"]:
+                    st.session_state["closing_cost_percent"] = 0.0
+                elif scraped["ownership"] == "Selveier":
+                    if st.session_state["closing_cost_percent"] == 0.0:
+                        st.session_state["closing_cost_percent"] = 2.5
+
+            if found_anything:
+                st.sidebar.success("Fant data og fylte inn det som var tilgjengelig.")
+            else:
+                st.sidebar.warning("Fant ingen tydelige felter i annonsen. Legg inn manuelt.")
+
+        except requests.HTTPError as e:
+            st.sidebar.error(f"HTTP-feil: {e}")
+        except requests.RequestException as e:
+            st.sidebar.error(f"Nettverksfeil: {e}")
+        except Exception as e:
+            st.sidebar.error(f"Noe gikk galt: {e}")
+
+if st.session_state["detected_area"]:
+    st.sidebar.caption(f"Område fra annonse: {st.session_state['detected_area']}")
+
+if st.session_state["detected_ownership"]:
+    st.sidebar.caption(f"Eierform fra annonse: {st.session_state['detected_ownership']}")
+
+
 # -------------------------
 # Sidebar / input
 # -------------------------
@@ -109,93 +422,111 @@ st.sidebar.header("Inndata")
 purchase_price = st.sidebar.number_input(
     "Kjøpesum",
     min_value=0,
-    value=3_000_000,
     step=50_000,
+    key="purchase_price",
 )
 
 equity_percent = st.sidebar.slider(
     "EK-krav (%)",
     min_value=0,
     max_value=100,
-    value=15,
     step=1,
+    key="equity_percent",
 )
 
 max_loan_amount = st.sidebar.number_input(
     "Maks lån",
     min_value=0,
-    value=2_700_000,
     step=50_000,
+    key="max_loan_amount",
 )
 
 closing_cost_percent = st.sidebar.number_input(
     "Omkostninger / dokumentavgift (%)",
     min_value=0.0,
     max_value=20.0,
-    value=2.5,
     step=0.1,
+    key="closing_cost_percent",
 )
 
 monthly_rent = st.sidebar.number_input(
     "Månedlig leie",
     min_value=0,
-    value=18_000,
     step=500,
+    key="monthly_rent",
 )
 
 electricity = st.sidebar.number_input(
     "Strøm per måned",
     min_value=0,
-    value=1_000,
     step=100,
+    key="electricity",
 )
 
 common_costs = st.sidebar.number_input(
     "Felleskost per måned",
     min_value=0,
-    value=2_500,
     step=100,
+    key="common_costs",
 )
 
 municipal_fees = st.sidebar.number_input(
     "Kommunale avgifter per måned",
     min_value=0,
-    value=800,
     step=100,
+    key="municipal_fees",
 )
 
 other_costs = st.sidebar.number_input(
     "Andre kostnader per måned",
     min_value=0,
-    value=500,
     step=100,
+    key="other_costs",
 )
 
 loan_type = st.sidebar.selectbox(
     "Lånetype",
     ["Annuitetslån", "Serielån"],
+    key="loan_type",
 )
 
 rate_type = st.sidebar.selectbox(
     "Rentetype",
-    ["Nominell rente", "Effektiv rente"]
+    ["Nominell rente", "Effektiv rente"],
+    key="rate_type",
 )
 
 rate_input = st.sidebar.number_input(
     "Rente (%)",
     min_value=0.0,
     max_value=20.0,
-    value=5.5,
     step=0.1,
+    key="rate_input",
 )
 
 repayment_years = st.sidebar.number_input(
     "Nedbetalingstid (år)",
     min_value=1,
     max_value=40,
-    value=30,
     step=1,
+    key="repayment_years",
 )
+
+
+# -------------------------
+# Info fra annonse
+# -------------------------
+if st.session_state["detected_area"] or st.session_state["detected_ownership"]:
+    st.subheader("Data hentet fra annonse")
+
+    info_col1, info_col2 = st.columns(2)
+    with info_col1:
+        st.write("**Område:**", st.session_state["detected_area"] or "Fant ikke")
+    with info_col2:
+        st.write("**Eierform:**", st.session_state["detected_ownership"] or "Fant ikke")
+
+    st.caption("Tall som ikke ble funnet automatisk kan du fylle inn manuelt i sidepanelet.")
+    st.divider()
 
 
 # -------------------------
@@ -278,13 +609,12 @@ with col1:
         help=format_nok(purchase_price)
     )
 
-
 with col2:
-   st.metric(
-    "Brutto yield",
-    f"{gross_yield_percent:.2f} %",
-    help="(Månedlig leie × 12) / (kjøpesum + omkostninger). Løpende kostnader er ikke inkludert."
-)
+    st.metric(
+        "Brutto yield",
+        f"{gross_yield_percent:.2f} %",
+        help="(Månedlig leie × 12) / (kjøpesum + omkostninger). Løpende kostnader er ikke inkludert."
+    )
 
 with col3:
     st.metric("Break-even leie", format_nok(break_even_rent))
@@ -303,8 +633,6 @@ with col5:
         help="Antall rentehopp (0,25 %-poeng økninger) en tåler før månedlig netto kontantstrøm blir negativ."
     )
 
-
-
 st.divider()
 
 
@@ -322,12 +650,6 @@ with left_top:
 
     fig, ax = plt.subplots(figsize=(5, 6))
 
-    ek_krav = required_equity_base
-    omkost = closing_costs
-    ekstra_ek = purchase_gap_due_to_loan_limit
-
-    fig, ax = plt.subplots(figsize=(5, 6))
-
     ax.bar(["Totalt EK-behov"], [ek_krav], label="EK-krav")
     ax.bar(["Totalt EK-behov"], [omkost], bottom=[ek_krav], label="Omkostninger / dokumentavgift")
     ax.bar(
@@ -336,10 +658,6 @@ with left_top:
         bottom=[ek_krav + omkost],
         label="Ekstra EK pga. lånegrense"
     )
-
-    total_height = ek_krav + omkost + ekstra_ek
-
-   
 
     if ek_krav > 0:
         ax.text(
