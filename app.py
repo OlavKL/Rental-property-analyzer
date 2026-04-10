@@ -109,26 +109,60 @@ def normalize_ownership(value: str | None) -> str | None:
         return "Aksje"
     if "borettslag" in v:
         return "Andel"
+
     return clean_text(value)
 
 
-def extract_area_from_title(soup: BeautifulSoup) -> str | None:
+def extract_address_from_links(soup: BeautifulSoup) -> str | None:
+    """
+    Prøver å finne full adresse fra lenker, typisk den blå adresseteksten på FINN.
+    Eksempel: 'Åsveien 4, 4879 Grimstad'
+    """
+    address_pattern = re.compile(
+        r"\b[A-ZÆØÅa-zæøå0-9.\- ]+\s+\d+[A-Za-z]?,\s*\d{4}\s+[A-ZÆØÅa-zæøå .\-]+\b"
+    )
+
+    for a_tag in soup.find_all("a", href=True):
+        text = clean_text(a_tag.get_text(" ", strip=True))
+        if not text:
+            continue
+
+        match = address_pattern.search(text)
+        if match:
+            return clean_text(match.group(0))
+
+    return None
+
+
+def extract_area_from_address(address: str | None) -> str | None:
+    """
+    Trekker ut sted fra adresse.
+    Eksempel: 'Åsveien 4, 4879 Grimstad' -> 'Grimstad'
+    """
+    if not address:
+        return None
+
+    match = re.search(r",\s*\d{4}\s+([A-ZÆØÅa-zæøå .\-]+)$", address)
+    if match:
+        return clean_text(match.group(1))
+
+    return None
+
+
+def extract_address_from_title(soup: BeautifulSoup) -> str | None:
     title = ""
     if soup.title and soup.title.string:
         title = soup.title.string
 
     title = clean_text(title) or ""
 
-    patterns = [
-        r"\|\s*([^|]+?)\s*-\s*FINN\.no",
-        r" - ([^-|]+?)\s*\|\s*FINN\.no",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, title, flags=re.IGNORECASE)
-        if match:
-            candidate = clean_text(match.group(1))
-            if candidate and len(candidate) <= 80:
-                return candidate
+    match = re.search(
+        r"\b[A-ZÆØÅa-zæøå0-9.\- ]+\s+\d+[A-Za-z]?,\s*\d{4}\s+[A-ZÆØÅa-zæøå .\-]+\b",
+        title,
+    )
+    if match:
+        return clean_text(match.group(0))
+
     return None
 
 
@@ -141,8 +175,22 @@ def parse_finn_page(html: str) -> dict:
         "purchase_price": None,
         "common_costs": None,
         "area": None,
+        "address": None,
         "ownership": None,
     }
+
+    # 0) Prøv å finne full adresse først, helst fra blå lenketekst
+    address_from_link = extract_address_from_links(soup)
+    if address_from_link:
+        result["address"] = address_from_link
+        result["area"] = extract_area_from_address(address_from_link)
+
+    # Backup: prøv sidetittel hvis adressen ikke ble funnet
+    if not result["address"]:
+        address_from_title = extract_address_from_title(soup)
+        if address_from_title:
+            result["address"] = address_from_title
+            result["area"] = extract_area_from_address(address_from_title)
 
     # 1) JSON-LD
     jsonld_objects = find_json_ld_objects(soup)
@@ -157,10 +205,10 @@ def parse_finn_page(html: str) -> dict:
         if jsonld_price is not None and jsonld_area is not None:
             break
 
-    if jsonld_price is not None:
+    if jsonld_price is not None and result["purchase_price"] is None:
         result["purchase_price"] = extract_first_number(str(jsonld_price))
 
-    if isinstance(jsonld_area, str):
+    if isinstance(jsonld_area, str) and not result["area"]:
         result["area"] = clean_text(jsonld_area)
 
     # 2) Pris: prøv totalpris først, deretter prisantydning
@@ -209,22 +257,19 @@ def parse_finn_page(html: str) -> dict:
             result["ownership"] = normalize_ownership(ownership_raw)
             break
 
-    # 5) Område
+    # 5) Område-backup hvis adresse ikke ga treff
     if not result["area"]:
         area_patterns = [
-            r"Område\s*([A-ZÆØÅa-zæøå0-9 ,\-/]+)",
             r"Adresse\s*([A-ZÆØÅa-zæøå0-9 ,\-/]+)",
+            r"\b([A-ZÆØÅ][A-ZÆØÅa-zæøå\- ]+)\s+\d{4}\b",
         ]
         for pattern in area_patterns:
             match = re.search(pattern, full_text, flags=re.IGNORECASE)
             if match:
                 candidate = clean_text(match.group(1))
-                if candidate and len(candidate) <= 100:
+                if candidate and len(candidate) <= 60:
                     result["area"] = candidate
                     break
-
-    if not result["area"]:
-        result["area"] = extract_area_from_title(soup)
 
     result["ownership"] = normalize_ownership(result["ownership"])
     return result
@@ -279,9 +324,8 @@ def serial_schedule_last_month(principal: float, annual_rate_percent: float, yea
 def monthly_payment_by_loan_type(principal: float, annual_rate_percent: float, years: int, loan_type: str) -> float:
     if loan_type == "Annuitetslån":
         return annuity_payment(principal, annual_rate_percent, years)
-    else:
-        first_total, _, _ = serial_schedule_first_month(principal, annual_rate_percent, years)
-        return first_total
+    first_total, _, _ = serial_schedule_first_month(principal, annual_rate_percent, years)
+    return first_total
 
 
 def calculate_rate_hikes_tolerated(
@@ -320,8 +364,7 @@ def format_mill(value: float) -> str:
     if value >= 1_000_000:
         mill = value / 1_000_000
         return f"{mill:.3f}".rstrip("0").rstrip(".") + " mill"
-    else:
-        return format_nok(value)
+    return format_nok(value)
 
 
 # -------------------------
@@ -339,10 +382,11 @@ defaults = {
     "other_costs": 500,
     "loan_type": "Annuitetslån",
     "rate_type": "Nominell rente",
-    "rate_input": 5.5,
+    "rate_input": 4.85,
     "repayment_years": 30,
     "finn_url": "",
     "detected_area": "",
+    "detected_address": "",
     "detected_ownership": "",
 }
 
@@ -381,6 +425,10 @@ if st.sidebar.button("Hent fra annonse"):
                 st.session_state["common_costs"] = scraped["common_costs"]
                 found_anything = True
 
+            if scraped["address"]:
+                st.session_state["detected_address"] = scraped["address"]
+                found_anything = True
+
             if scraped["area"]:
                 st.session_state["detected_area"] = scraped["area"]
                 found_anything = True
@@ -406,6 +454,9 @@ if st.sidebar.button("Hent fra annonse"):
             st.sidebar.error(f"Nettverksfeil: {e}")
         except Exception as e:
             st.sidebar.error(f"Noe gikk galt: {e}")
+
+if st.session_state["detected_address"]:
+    st.sidebar.caption(f"Adresse fra annonse: {st.session_state['detected_address']}")
 
 if st.session_state["detected_area"]:
     st.sidebar.caption(f"Område fra annonse: {st.session_state['detected_area']}")
@@ -518,40 +569,38 @@ repayment_years = st.sidebar.number_input(
 # -------------------------
 if (
     st.session_state["detected_area"]
+    or st.session_state["detected_address"]
     or st.session_state["detected_ownership"]
     or st.session_state["purchase_price"]
     or st.session_state["common_costs"]
 ):
     st.subheader("Data hentet fra annonse")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2 = st.columns(2)
 
     with col1:
         st.write(
             "**Kjøpesum:**",
             format_mill(st.session_state["purchase_price"]) if st.session_state["purchase_price"] else "Fant ikke"
         )
-
-    with col2:
         st.write(
             "**Felleskost:**",
             format_nok(st.session_state["common_costs"]) if st.session_state["common_costs"] else "Fant ikke"
         )
+        st.write(
+            "**Adresse:**",
+            st.session_state["detected_address"] or "Fant ikke"
+        )
 
-    with col3:
+    with col2:
         st.write(
             "**Område:**",
             st.session_state["detected_area"] or "Fant ikke"
         )
-
-    with col4:
         st.write(
             "**Eierform:**",
             st.session_state["detected_ownership"] or "Fant ikke"
         )
-
-    st.caption("Tall som ikke ble funnet automatisk kan du fylle inn manuelt i sidepanelet.")
-    st.divider()
 
     st.caption("Tall som ikke ble funnet automatisk kan du fylle inn manuelt i sidepanelet.")
     st.divider()
