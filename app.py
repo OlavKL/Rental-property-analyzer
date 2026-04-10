@@ -516,14 +516,42 @@ repayment_years = st.sidebar.number_input(
 # -------------------------
 # Info fra annonse
 # -------------------------
-if st.session_state["detected_area"] or st.session_state["detected_ownership"]:
+if (
+    st.session_state["detected_area"]
+    or st.session_state["detected_ownership"]
+    or st.session_state["purchase_price"]
+    or st.session_state["common_costs"]
+):
     st.subheader("Data hentet fra annonse")
 
-    info_col1, info_col2 = st.columns(2)
-    with info_col1:
-        st.write("**Område:**", st.session_state["detected_area"] or "Fant ikke")
-    with info_col2:
-        st.write("**Eierform:**", st.session_state["detected_ownership"] or "Fant ikke")
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.write(
+            "**Kjøpesum:**",
+            format_mill(st.session_state["purchase_price"]) if st.session_state["purchase_price"] else "Fant ikke"
+        )
+
+    with col2:
+        st.write(
+            "**Felleskost:**",
+            format_nok(st.session_state["common_costs"]) if st.session_state["common_costs"] else "Fant ikke"
+        )
+
+    with col3:
+        st.write(
+            "**Område:**",
+            st.session_state["detected_area"] or "Fant ikke"
+        )
+
+    with col4:
+        st.write(
+            "**Eierform:**",
+            st.session_state["detected_ownership"] or "Fant ikke"
+        )
+
+    st.caption("Tall som ikke ble funnet automatisk kan du fylle inn manuelt i sidepanelet.")
+    st.divider()
 
     st.caption("Tall som ikke ble funnet automatisk kan du fylle inn manuelt i sidepanelet.")
     st.divider()
