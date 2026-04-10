@@ -649,9 +649,14 @@ if (
         )
 
     with col2:
+        # Hvis område ikke ble funnet, prøv å vise det utledet fra adresse
+        area_to_show = st.session_state["detected_area"]
+        if not area_to_show and st.session_state["detected_address"]:
+            area_to_show = extract_area_from_address(st.session_state["detected_address"])
+
         st.write(
             "**Område:**",
-            st.session_state["detected_area"] or "Fant ikke"
+            area_to_show or "Fant ikke"
         )
         st.write(
             "**Eierform:**",
