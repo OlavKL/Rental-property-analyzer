@@ -113,40 +113,103 @@ def normalize_ownership(value: str | None) -> str | None:
     return clean_text(value)
 
 
-def extract_address_from_links(soup: BeautifulSoup) -> str | None:
-    """
-    Prøver å finne full adresse fra lenker, typisk den blå adresseteksten på FINN.
-    Eksempel: 'Åsveien 4, 4879 Grimstad'
-    """
-    address_pattern = re.compile(
-        r"\b[A-ZÆØÅa-zæøå0-9.\- ]+\s+\d+[A-Za-z]?,\s*\d{4}\s+[A-ZÆØÅa-zæøå .\-]+\b"
-    )
+def is_valid_area(area: str | None) -> bool:
+    if not area:
+        return False
 
-    for a_tag in soup.find_all("a", href=True):
-        text = clean_text(a_tag.get_text(" ", strip=True))
-        if not text:
-            continue
+    area = clean_text(area)
+    if not area:
+        return False
 
-        match = address_pattern.search(text)
-        if match:
-            return clean_text(match.group(0))
+    bad_fragments = [
+        "vedlikeholdsfond",
+        "felleskost",
+        "prisantydning",
+        "totalpris",
+        "omkostninger",
+        "andel fellesgjeld",
+        "kommunale avgifter",
+        "strøm",
+        "soverom",
+    ]
 
-    return None
+    lower_area = area.lower()
+    if any(fragment in lower_area for fragment in bad_fragments):
+        return False
+
+    if len(area) < 2 or len(area) > 40:
+        return False
+
+    return True
 
 
 def extract_area_from_address(address: str | None) -> str | None:
-    """
-    Trekker ut sted fra adresse.
-    Eksempel: 'Åsveien 4, 4879 Grimstad' -> 'Grimstad'
-    """
     if not address:
         return None
 
     match = re.search(r",\s*\d{4}\s+([A-ZÆØÅa-zæøå .\-]+)$", address)
     if match:
-        return clean_text(match.group(1))
+        candidate = clean_text(match.group(1))
+        if is_valid_area(candidate):
+            return candidate
 
     return None
+
+
+def extract_address_candidates(text: str) -> list[str]:
+    if not text:
+        return []
+
+    patterns = [
+        r"\b[A-ZÆØÅ][A-Za-zÆØÅæøå0-9.\- ]{2,40}\s+\d+[A-Za-z]?,\s*\d{4}\s+[A-ZÆØÅ][A-Za-zÆØÅæøå.\- ]{2,30}\b",
+        r"\b[A-ZÆØÅ][A-Za-zÆØÅæøå0-9.\- ]{2,40}\s+\d+[A-Za-z]?\s*,\s*\d{4}\s+[A-ZÆØÅ][A-Za-zÆØÅæøå.\- ]{2,30}\b",
+    ]
+
+    candidates = []
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
+        for match in matches:
+            cleaned = clean_text(match)
+            if cleaned and cleaned not in candidates:
+                candidates.append(cleaned)
+
+    return candidates
+
+
+def choose_best_address(candidates: list[str]) -> str | None:
+    if not candidates:
+        return None
+
+    # Velg korteste plausible kandidat først
+    candidates = sorted(candidates, key=len)
+
+    for candidate in candidates:
+        if "," in candidate and re.search(r"\d{4}", candidate):
+            return candidate
+
+    return candidates[0]
+
+
+def extract_address_from_links(soup: BeautifulSoup) -> str | None:
+    candidates = []
+
+    for a_tag in soup.find_all("a", href=True):
+        text = clean_text(a_tag.get_text(" ", strip=True))
+        if not text:
+            continue
+        candidates.extend(extract_address_candidates(text))
+
+    return choose_best_address(candidates)
+
+
+def extract_address_from_visible_text(full_text: str) -> str | None:
+    candidates = extract_address_candidates(full_text)
+    return choose_best_address(candidates)
+
+
+def extract_address_from_raw_html(html: str) -> str | None:
+    candidates = extract_address_candidates(html)
+    return choose_best_address(candidates)
 
 
 def extract_address_from_title(soup: BeautifulSoup) -> str | None:
@@ -155,15 +218,8 @@ def extract_address_from_title(soup: BeautifulSoup) -> str | None:
         title = soup.title.string
 
     title = clean_text(title) or ""
-
-    match = re.search(
-        r"\b[A-ZÆØÅa-zæøå0-9.\- ]+\s+\d+[A-Za-z]?,\s*\d{4}\s+[A-ZÆØÅa-zæøå .\-]+\b",
-        title,
-    )
-    if match:
-        return clean_text(match.group(0))
-
-    return None
+    candidates = extract_address_candidates(title)
+    return choose_best_address(candidates)
 
 
 def parse_finn_page(html: str) -> dict:
@@ -179,18 +235,17 @@ def parse_finn_page(html: str) -> dict:
         "ownership": None,
     }
 
-    # 0) Prøv å finne full adresse først, helst fra blå lenketekst
-    address_from_link = extract_address_from_links(soup)
-    if address_from_link:
-        result["address"] = address_from_link
-        result["area"] = extract_area_from_address(address_from_link)
+    # 0) Adresse: prøv flere kilder i prioritert rekkefølge
+    address = (
+        extract_address_from_links(soup)
+        or extract_address_from_visible_text(full_text)
+        or extract_address_from_raw_html(html)
+        or extract_address_from_title(soup)
+    )
 
-    # Backup: prøv sidetittel hvis adressen ikke ble funnet
-    if not result["address"]:
-        address_from_title = extract_address_from_title(soup)
-        if address_from_title:
-            result["address"] = address_from_title
-            result["area"] = extract_area_from_address(address_from_title)
+    if address:
+        result["address"] = address
+        result["area"] = extract_area_from_address(address)
 
     # 1) JSON-LD
     jsonld_objects = find_json_ld_objects(soup)
@@ -209,9 +264,11 @@ def parse_finn_page(html: str) -> dict:
         result["purchase_price"] = extract_first_number(str(jsonld_price))
 
     if isinstance(jsonld_area, str) and not result["area"]:
-        result["area"] = clean_text(jsonld_area)
+        candidate = clean_text(jsonld_area)
+        if is_valid_area(candidate):
+            result["area"] = candidate
 
-    # 2) Pris: prøv totalpris først, deretter prisantydning
+    # 2) Pris
     price_patterns = [
         r"Totalpris\s*([\d\s\u00A0.,]+)\s*kr",
         r"Prisantydning\s*([\d\s\u00A0.,]+)\s*kr",
@@ -257,27 +314,26 @@ def parse_finn_page(html: str) -> dict:
             result["ownership"] = normalize_ownership(ownership_raw)
             break
 
-    # 5) Område-backup hvis adresse ikke ga treff
+    # 5) Siste backup for område
     if not result["area"]:
         area_patterns = [
-            r"Adresse\s*([A-ZÆØÅa-zæøå0-9 ,\-/]+)",
+            r",\s*\d{4}\s+([A-ZÆØÅa-zæøå .\-]{2,30})",
             r"\b([A-ZÆØÅ][A-ZÆØÅa-zæøå\- ]+)\s+\d{4}\b",
         ]
         for pattern in area_patterns:
             match = re.search(pattern, full_text, flags=re.IGNORECASE)
             if match:
                 candidate = clean_text(match.group(1))
-                if candidate and len(candidate) <= 60:
+                if is_valid_area(candidate):
                     result["area"] = candidate
                     break
 
     result["ownership"] = normalize_ownership(result["ownership"])
+
+    if not is_valid_area(result["area"]):
+        result["area"] = None
+
     return result
-
-
-# -------------------------
-# Hjelpefunksjoner: kalkulator
-# -------------------------
 def annuity_payment(principal: float, annual_rate_percent: float, years: int) -> float:
     months = years * 12
     monthly_rate = annual_rate_percent / 100 / 12
