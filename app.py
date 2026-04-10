@@ -131,6 +131,7 @@ def is_valid_area(area: str | None) -> bool:
         "kommunale avgifter",
         "strøm",
         "soverom",
+        "inkluderer",
     ]
 
     lower_area = area.lower()
@@ -152,6 +153,20 @@ def extract_area_from_address(address: str | None) -> str | None:
         candidate = clean_text(match.group(1))
         if is_valid_area(candidate):
             return candidate
+
+    return None
+
+
+def extract_address_from_kart_line(full_text: str) -> str | None:
+    patterns = [
+        r"Kart\s+([A-ZÆØÅa-zæøå0-9.\- ]+\d+[A-Za-z]?,\s*\d{4}\s+[A-ZÆØÅa-zæøå .\-]+)",
+        r"Kart\s+([A-ZÆØÅa-zæøå0-9.\- ]+,\s*\d{4}\s+[A-ZÆØÅa-zæøå .\-]+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, full_text, flags=re.IGNORECASE)
+        if match:
+            return clean_text(match.group(1))
 
     return None
 
@@ -180,7 +195,6 @@ def choose_best_address(candidates: list[str]) -> str | None:
     if not candidates:
         return None
 
-    # Velg korteste plausible kandidat først
     candidates = sorted(candidates, key=len)
 
     for candidate in candidates:
@@ -212,14 +226,46 @@ def extract_address_from_raw_html(html: str) -> str | None:
     return choose_best_address(candidates)
 
 
-def extract_address_from_title(soup: BeautifulSoup) -> str | None:
-    title = ""
-    if soup.title and soup.title.string:
-        title = soup.title.string
+def extract_area_from_uppercase_line(full_text: str) -> str | None:
+    for line in full_text.split("  "):
+        candidate = clean_text(line)
+        if not candidate:
+            continue
 
-    title = clean_text(title) or ""
-    candidates = extract_address_candidates(title)
-    return choose_best_address(candidates)
+        if re.fullmatch(r"[A-ZÆØÅ/\- ]{3,40}", candidate):
+            candidate = candidate.title()
+            if is_valid_area(candidate):
+                return candidate
+
+    return None
+
+
+def extract_area_from_breadcrumb(full_text: str) -> str | None:
+    match = re.search(
+        r"Eiendom\s*/\s*Bolig til salgs\s*/\s*[A-ZÆØÅa-zæøå .\-]+\s*/\s*([A-ZÆØÅa-zæøå .\-]+)(?:\s*/\s*([A-ZÆØÅa-zæøå .\-]+))?",
+        full_text
+    )
+    if match:
+        second = clean_text(match.group(2)) if match.group(2) else None
+        first = clean_text(match.group(1))
+
+        if second and is_valid_area(second):
+            return second
+        if first and is_valid_area(first):
+            return first
+
+    return None
+
+
+def estimate_rent_from_bedrooms(bedrooms: int | None) -> int | None:
+    if not bedrooms or bedrooms <= 0:
+        return None
+
+    if bedrooms == 1:
+        return 9000
+    if bedrooms >= 4:
+        return bedrooms * 6000
+    return bedrooms * 6500
 
 
 def parse_finn_page(html: str) -> dict:
@@ -233,15 +279,19 @@ def parse_finn_page(html: str) -> dict:
         "area": None,
         "address": None,
         "ownership": None,
+        "bedrooms": None,
+        "estimated_rent": None,
     }
 
-    # 0) Adresse: prøv flere kilder i prioritert rekkefølge
-    address = (
-        extract_address_from_links(soup)
-        or extract_address_from_visible_text(full_text)
-        or extract_address_from_raw_html(html)
-        or extract_address_from_title(soup)
-    )
+    # 0) Adresse
+    address = extract_address_from_kart_line(full_text)
+
+    if not address:
+        address = (
+            extract_address_from_links(soup)
+            or extract_address_from_visible_text(full_text)
+            or extract_address_from_raw_html(html)
+        )
 
     if address:
         result["address"] = address
@@ -298,6 +348,10 @@ def parse_finn_page(html: str) -> dict:
 
     # 4) Eierform
     ownership_patterns = [
+        r"Eieform\s*(Selveier)",
+        r"Eieform\s*(Andel)",
+        r"Eieform\s*(Aksje)",
+        r"Eieform\s*(Borettslag)",
         r"Eierform\s*(Selveier)",
         r"Eierform\s*(Andel)",
         r"Eierform\s*(Aksje)",
@@ -314,26 +368,46 @@ def parse_finn_page(html: str) -> dict:
             result["ownership"] = normalize_ownership(ownership_raw)
             break
 
-    # 5) Siste backup for område
+    # 5) Soverom
+    bedroom_patterns = [
+        r"(\d+)\s+soverom",
+        r"Soverom\s*(\d+)",
+        r"(\d+)\s+sov",
+    ]
+    for pattern in bedroom_patterns:
+        match = re.search(pattern, full_text, flags=re.IGNORECASE)
+        if match:
+            try:
+                result["bedrooms"] = int(match.group(1))
+                break
+            except ValueError:
+                pass
+
+    # 6) Backup for område
     if not result["area"]:
-        area_patterns = [
-            r",\s*\d{4}\s+([A-ZÆØÅa-zæøå .\-]{2,30})",
-            r"\b([A-ZÆØÅ][A-ZÆØÅa-zæøå\- ]+)\s+\d{4}\b",
-        ]
-        for pattern in area_patterns:
-            match = re.search(pattern, full_text, flags=re.IGNORECASE)
-            if match:
-                candidate = clean_text(match.group(1))
-                if is_valid_area(candidate):
-                    result["area"] = candidate
-                    break
+        area_candidate = extract_area_from_uppercase_line(full_text)
+        if area_candidate:
+            result["area"] = area_candidate
+
+    if not result["area"]:
+        area_candidate = extract_area_from_breadcrumb(full_text)
+        if area_candidate:
+            result["area"] = area_candidate
 
     result["ownership"] = normalize_ownership(result["ownership"])
 
     if not is_valid_area(result["area"]):
         result["area"] = None
 
+    # 7) Estimert leie
+    result["estimated_rent"] = estimate_rent_from_bedrooms(result["bedrooms"])
+
     return result
+
+
+# -------------------------
+# Hjelpefunksjoner: kalkulator
+# -------------------------
 def annuity_payment(principal: float, annual_rate_percent: float, years: int) -> float:
     months = years * 12
     monthly_rate = annual_rate_percent / 100 / 12
@@ -444,6 +518,8 @@ defaults = {
     "detected_area": "",
     "detected_address": "",
     "detected_ownership": "",
+    "detected_bedrooms": 0,
+    "detected_estimated_rent": 0,
 }
 
 for key, value in defaults.items():
@@ -499,6 +575,15 @@ if st.sidebar.button("Hent fra annonse"):
                     if st.session_state["closing_cost_percent"] == 0.0:
                         st.session_state["closing_cost_percent"] = 2.5
 
+            if scraped["bedrooms"] is not None:
+                st.session_state["detected_bedrooms"] = scraped["bedrooms"]
+                found_anything = True
+
+            if scraped["estimated_rent"] is not None:
+                st.session_state["detected_estimated_rent"] = scraped["estimated_rent"]
+                st.session_state["monthly_rent"] = scraped["estimated_rent"]
+                found_anything = True
+
             if found_anything:
                 st.sidebar.success("Fant data og fylte inn det som var tilgjengelig.")
             else:
@@ -519,6 +604,12 @@ if st.session_state["detected_area"]:
 
 if st.session_state["detected_ownership"]:
     st.sidebar.caption(f"Eierform fra annonse: {st.session_state['detected_ownership']}")
+
+if st.session_state["detected_bedrooms"]:
+    st.sidebar.caption(f"Soverom fra annonse: {st.session_state['detected_bedrooms']}")
+
+if st.session_state["detected_estimated_rent"]:
+    st.sidebar.caption(f"Estimert leie: {format_nok(st.session_state['detected_estimated_rent'])}")
 
 
 # -------------------------
@@ -629,6 +720,8 @@ if (
     or st.session_state["detected_ownership"]
     or st.session_state["purchase_price"]
     or st.session_state["common_costs"]
+    or st.session_state["detected_bedrooms"]
+    or st.session_state["detected_estimated_rent"]
 ):
     st.subheader("Data hentet fra annonse")
 
@@ -647,9 +740,12 @@ if (
             "**Adresse:**",
             st.session_state["detected_address"] or "Fant ikke"
         )
+        st.write(
+            "**Soverom:**",
+            st.session_state["detected_bedrooms"] if st.session_state["detected_bedrooms"] else "Fant ikke"
+        )
 
     with col2:
-        # Hvis område ikke ble funnet, prøv å vise det utledet fra adresse
         area_to_show = st.session_state["detected_area"]
         if not area_to_show and st.session_state["detected_address"]:
             area_to_show = extract_area_from_address(st.session_state["detected_address"])
@@ -662,8 +758,12 @@ if (
             "**Eierform:**",
             st.session_state["detected_ownership"] or "Fant ikke"
         )
+        st.write(
+            "**Estimert leie:**",
+            format_nok(st.session_state["detected_estimated_rent"]) if st.session_state["detected_estimated_rent"] else "Fant ikke"
+        )
 
-    st.caption("Tall som ikke ble funnet automatisk kan du fylle inn manuelt i sidepanelet.")
+    st.caption("Estimert leie er foreløpig basert på antall soverom fra annonsen.")
     st.divider()
 
 
