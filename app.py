@@ -793,6 +793,21 @@ if (
 ):
     st.subheader("Data hentet fra annonse")
 
+    area_to_show = st.session_state["detected_area"]
+    if not area_to_show and st.session_state["detected_address"]:
+        area_to_show = extract_area_from_address(st.session_state["detected_address"])
+
+    detected_municipality = detect_municipality(
+        area_to_show,
+        st.session_state["detected_address"]
+    )
+
+    annual_property_tax_preview, _, _ = estimate_property_tax(
+        purchase_price=st.session_state["purchase_price"],
+        municipality=detected_municipality,
+        valuation_factor=0.85,
+    )
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -814,11 +829,7 @@ if (
         )
 
     with col2:
-        area_to_show = st.session_state["detected_area"]
-        if not area_to_show and st.session_state["detected_address"]:
-            area_to_show = extract_area_from_address(st.session_state["detected_address"])
-
-               st.write(
+        st.write(
             "**Område:**",
             area_to_show or "Fant ikke"
         )
@@ -836,7 +847,7 @@ if (
         )
         st.write(
             "**Estimert eiendomsskatt:**",
-            format_nok(annual_property_tax) + " / år" if annual_property_tax > 0 else "Fant ikke"
+            format_nok(annual_property_tax_preview) + " / år" if annual_property_tax_preview > 0 else "Fant ikke"
         )
 
     st.caption("Estimert leie er foreløpig basert på antall soverom fra annonsen.")
@@ -846,6 +857,7 @@ if (
 # -------------------------
 # Beregninger: EK og finansiering
 # -------------------------
+
 closing_costs = purchase_price * (closing_cost_percent / 100)
 required_equity_base = purchase_price * (equity_percent / 100)
 
