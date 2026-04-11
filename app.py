@@ -926,7 +926,8 @@ max_tolerated_nominal_rate = nominal_rate + rate_hikes_tolerated * 0.25
 # -------------------------
 st.subheader("Nøkkeltall")
 
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
+
 with col1:
     st.metric(
         "Kjøpesum",
@@ -946,16 +947,25 @@ with col3:
 
 with col4:
     st.metric(
-        "Netto kontantstrøm / mnd",
-        format_nok(monthly_cashflow_before_tax),
-        help="Leie minus alle kostnader inkludert strøm, felleskostnader, avgifter og hele terminbeløpet på lånet (både renter og avdrag). Viser faktisk penger inn/ut av konto per måned."
+        "Eiendomsskatt / år",
+        format_nok(annual_property_tax),
+        help=f"Estimert som kjøpesum × {property_tax_valuation_factor:.0%} × promille for kommunen."
     )
+    
 
 with col5:
+    st.metric(
+        "Netto kontantstrøm / mnd",
+        format_nok(monthly_cashflow_before_tax),
+        help="Leie minus alle kostnader inkludert strøm, felleskostnader, kommunale avgifter, estimert eiendomsskatt og hele terminbeløpet på lånet (både renter og avdrag). Viser faktisk penger inn/ut av konto per måned."
+    )
+
+with col6:
     st.metric(
         "Rente-stresstest",
         f"{rate_hikes_tolerated} stk",
         help="Antall rentehopp (0,25 %-poeng økninger) en tåler før månedlig netto kontantstrøm blir negativ."
+    )
     )
 
 st.divider()
@@ -1125,13 +1135,14 @@ with left:
 with right:
     st.subheader("Kontantstrøm før skatt")
 
-    cashflow_df = pd.DataFrame(
+       cashflow_df = pd.DataFrame(
         {
             "Post": [
                 "Månedlig leie",
                 "Strøm",
                 "Felleskost",
                 "Kommunale avgifter",
+                "Estimert eiendomsskatt",
                 "Andre kostnader",
                 "Lånekostnad per måned",
                 "Netto kontantstrøm per måned",
@@ -1144,6 +1155,7 @@ with right:
                 format_nok(electricity),
                 format_nok(common_costs),
                 format_nok(municipal_fees),
+                format_nok(monthly_property_tax),
                 format_nok(other_costs),
                 format_nok(monthly_loan_cost),
                 format_nok(monthly_cashflow_before_tax),
@@ -1192,6 +1204,8 @@ st.write(
 - **Ekstra EK pga. lånegrense:** {format_nok(purchase_gap_due_to_loan_limit)}
 - **Totalt EK-behov:** {format_nok(total_equity_needed)}
 - **Månedlige driftskostnader ekskl. lån:** {format_nok(monthly_operating_costs)}
+- **Estimert eiendomsskatt:** {format_nok(annual_property_tax)} per år / {format_nok(monthly_property_tax)} per måned
+- **Kommune brukt i beregning:** {detected_municipality or "Ikke funnet / ikke støttet ennå"}
 - **Break-even leie:** {format_nok(break_even_rent)} per måned
 - **Prosjektert netto kontantstrøm:** {format_nok(monthly_cashflow_before_tax)} per måned
 - **Brutto yield:** {gross_yield_percent:.2f} %
@@ -1224,4 +1238,5 @@ with st.expander("Hva betyr tallene?"):
 
 **Totalt EK-behov** = EK-krav + omkostninger + eventuelt ekstra tilskudd fordi lånet ikke dekker nok.
 """
-    )
+
+**Estimert eiendomsskatt** = foreløpig anslått basert på en justert markedsverdi (typisk ca. 85 % av kjøpesum), som brukes som proxy for skattegrunnlag, multiplisert med kommunens promillesats. Beregningen forutsetter sekundærbolig i den angitte kommunen. Dette er en forenklet modell og ikke en offisiell takst.
