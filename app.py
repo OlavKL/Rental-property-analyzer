@@ -268,6 +268,74 @@ def estimate_rent_from_bedrooms(bedrooms: int | None) -> int | None:
     return bedrooms * 6500
 
 
+def normalize_lookup_text(text: str | None) -> str:
+    if not text:
+        return ""
+    text = clean_text(text) or ""
+    text = text.lower()
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def detect_municipality(area: str | None, address: str | None) -> str | None:
+    candidates = []
+
+    if area:
+        candidates.append(area)
+
+    if address:
+        candidates.append(address)
+
+        address_area = extract_area_from_address(address)
+        if address_area:
+            candidates.append(address_area)
+
+    for candidate in candidates:
+        value = normalize_lookup_text(candidate)
+
+        if "kristiansand" in value:
+            return "Kristiansand"
+        if "grimstad" in value:
+            return "Grimstad"
+        if "lillesand" in value:
+            return "Lillesand"
+        if "arendal" in value:
+            return "Arendal"
+
+    return None
+
+
+def get_property_tax_rate_per_mille(municipality: str | None) -> float:
+    property_tax_rates = {
+        "Kristiansand": 1.96,
+        # Legg til flere kommuner her senere
+        # "Grimstad": 0.00,
+        # "Lillesand": 0.00,
+        # "Arendal": 0.00,
+    }
+    return property_tax_rates.get(municipality, 0.0)
+
+
+def estimate_property_tax(
+    purchase_price: float,
+    municipality: str | None,
+    valuation_factor: float = 0.85,
+) -> tuple[float, float, str | None]:
+    if purchase_price <= 0:
+        return 0.0, 0.0, municipality
+
+    detected_municipality = municipality
+    rate_per_mille = get_property_tax_rate_per_mille(detected_municipality)
+
+    if rate_per_mille <= 0:
+        return 0.0, 0.0, detected_municipality
+
+    taxable_value = purchase_price * valuation_factor
+    annual_property_tax = taxable_value * (rate_per_mille / 1000)
+    monthly_property_tax = annual_property_tax / 12
+
+    return annual_property_tax, monthly_property_tax, detected_municipality
+
 def parse_finn_page(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     full_text = soup.get_text(" ", strip=True)
