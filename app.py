@@ -818,9 +818,13 @@ if (
         if not area_to_show and st.session_state["detected_address"]:
             area_to_show = extract_area_from_address(st.session_state["detected_address"])
 
-        st.write(
+               st.write(
             "**Område:**",
             area_to_show or "Fant ikke"
+        )
+        st.write(
+            "**Kommune:**",
+            detected_municipality or "Fant ikke"
         )
         st.write(
             "**Eierform:**",
@@ -829,6 +833,10 @@ if (
         st.write(
             "**Estimert leie:**",
             format_nok(st.session_state["detected_estimated_rent"]) if st.session_state["detected_estimated_rent"] else "Fant ikke"
+        )
+        st.write(
+            "**Estimert eiendomsskatt:**",
+            format_nok(annual_property_tax) + " / år" if annual_property_tax > 0 else "Fant ikke"
         )
 
     st.caption("Estimert leie er foreløpig basert på antall soverom fra annonsen.")
