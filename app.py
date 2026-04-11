@@ -865,7 +865,18 @@ annual_rent = monthly_rent * 12
 gross_yield_percent = (
     annual_rent / (purchase_price + closing_costs) * 100
 ) if (purchase_price + closing_costs) > 0 else 0.0
-monthly_operating_costs = electricity + common_costs + municipal_fees + other_costs
+area_for_tax = st.session_state["detected_area"]
+address_for_tax = st.session_state["detected_address"]
+municipality_for_tax = detect_municipality(area_for_tax, address_for_tax)
+
+property_tax_valuation_factor = 0.85
+annual_property_tax, monthly_property_tax, detected_municipality = estimate_property_tax(
+    purchase_price=purchase_price,
+    municipality=municipality_for_tax,
+    valuation_factor=property_tax_valuation_factor,
+)
+
+monthly_operating_costs = electricity + common_costs + municipal_fees + other_costs + monthly_property_tax
 
 if loan_type == "Annuitetslån":
     monthly_loan_cost = annuity_payment(loan_amount, nominal_rate, repayment_years)
