@@ -308,10 +308,9 @@ def detect_municipality(area: str | None, address: str | None) -> str | None:
 def get_property_tax_rate_per_mille(municipality: str | None) -> float:
     property_tax_rates = {
         "Kristiansand": 1.96,
-        # Legg til flere kommuner her senere
-        # "Grimstad": 0.00,
-        # "Lillesand": 0.00,
-        # "Arendal": 0.00,
+        "Grimstad": 0.0,
+        "Lillesand": 0.0,
+        "Arendal": 0.0,
     }
     return property_tax_rates.get(municipality, 0.0)
 
@@ -336,6 +335,7 @@ def estimate_property_tax(
 
     return annual_property_tax, monthly_property_tax, detected_municipality
 
+
 def parse_finn_page(html: str) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     full_text = soup.get_text(" ", strip=True)
@@ -351,7 +351,6 @@ def parse_finn_page(html: str) -> dict:
         "estimated_rent": None,
     }
 
-    # 0) Adresse
     address = extract_address_from_kart_line(full_text)
 
     if not address:
@@ -365,7 +364,6 @@ def parse_finn_page(html: str) -> dict:
         result["address"] = address
         result["area"] = extract_area_from_address(address)
 
-    # 1) JSON-LD
     jsonld_objects = find_json_ld_objects(soup)
     jsonld_price = None
     jsonld_area = None
@@ -386,7 +384,6 @@ def parse_finn_page(html: str) -> dict:
         if is_valid_area(candidate):
             result["area"] = candidate
 
-    # 2) Pris
     price_patterns = [
         r"Totalpris\s*([\d\s\u00A0.,]+)\s*kr",
         r"Prisantydning\s*([\d\s\u00A0.,]+)\s*kr",
@@ -399,7 +396,6 @@ def parse_finn_page(html: str) -> dict:
                 result["purchase_price"] = parsed_price
                 break
 
-    # 3) Felleskostnader
     common_cost_patterns = [
         r"Felleskost/mnd\.?\s*([\d\s\u00A0.,]+)\s*kr",
         r"Felleskostnader\s*([\d\s\u00A0.,]+)\s*kr",
@@ -414,7 +410,6 @@ def parse_finn_page(html: str) -> dict:
                 result["common_costs"] = parsed_common_costs
                 break
 
-    # 4) Eierform
     ownership_patterns = [
         r"Eieform\s*(Selveier)",
         r"Eieform\s*(Andel)",
@@ -436,7 +431,6 @@ def parse_finn_page(html: str) -> dict:
             result["ownership"] = normalize_ownership(ownership_raw)
             break
 
-    # 5) Soverom
     bedroom_patterns = [
         r"(\d+)\s+soverom",
         r"Soverom\s*(\d+)",
@@ -451,7 +445,6 @@ def parse_finn_page(html: str) -> dict:
             except ValueError:
                 pass
 
-    # 6) Backup for område
     if not result["area"]:
         area_candidate = extract_area_from_uppercase_line(full_text)
         if area_candidate:
@@ -467,7 +460,6 @@ def parse_finn_page(html: str) -> dict:
     if not is_valid_area(result["area"]):
         result["area"] = None
 
-    # 7) Estimert leie
     result["estimated_rent"] = estimate_rent_from_bedrooms(result["bedrooms"])
 
     return result
@@ -780,6 +772,21 @@ repayment_years = st.sidebar.number_input(
 
 
 # -------------------------
+# Beregninger: kommune og eiendomsskatt
+# -------------------------
+area_for_tax = st.session_state["detected_area"]
+address_for_tax = st.session_state["detected_address"]
+
+municipality_for_tax = detect_municipality(area_for_tax, address_for_tax)
+property_tax_valuation_factor = 0.85
+annual_property_tax, monthly_property_tax, detected_municipality = estimate_property_tax(
+    purchase_price=purchase_price,
+    municipality=municipality_for_tax,
+    valuation_factor=property_tax_valuation_factor,
+)
+
+
+# -------------------------
 # Info fra annonse
 # -------------------------
 if (
@@ -797,14 +804,14 @@ if (
     if not area_to_show and st.session_state["detected_address"]:
         area_to_show = extract_area_from_address(st.session_state["detected_address"])
 
-    detected_municipality = detect_municipality(
+    detected_municipality_preview = detect_municipality(
         area_to_show,
         st.session_state["detected_address"]
     )
 
     annual_property_tax_preview, _, _ = estimate_property_tax(
         purchase_price=st.session_state["purchase_price"],
-        municipality=detected_municipality,
+        municipality=detected_municipality_preview,
         valuation_factor=0.85,
     )
 
@@ -835,7 +842,7 @@ if (
         )
         st.write(
             "**Kommune:**",
-            detected_municipality or "Fant ikke"
+            detected_municipality_preview or "Fant ikke"
         )
         st.write(
             "**Eierform:**",
@@ -857,7 +864,6 @@ if (
 # -------------------------
 # Beregninger: EK og finansiering
 # -------------------------
-
 closing_costs = purchase_price * (closing_cost_percent / 100)
 required_equity_base = purchase_price * (equity_percent / 100)
 
@@ -885,16 +891,6 @@ annual_rent = monthly_rent * 12
 gross_yield_percent = (
     annual_rent / (purchase_price + closing_costs) * 100
 ) if (purchase_price + closing_costs) > 0 else 0.0
-area_for_tax = st.session_state["detected_area"]
-address_for_tax = st.session_state["detected_address"]
-municipality_for_tax = detect_municipality(area_for_tax, address_for_tax)
-
-property_tax_valuation_factor = 0.85
-annual_property_tax, monthly_property_tax, detected_municipality = estimate_property_tax(
-    purchase_price=purchase_price,
-    municipality=municipality_for_tax,
-    valuation_factor=property_tax_valuation_factor,
-)
 
 monthly_operating_costs = electricity + common_costs + municipal_fees + other_costs + monthly_property_tax
 
@@ -930,8 +926,6 @@ rate_hikes_tolerated = calculate_rate_hikes_tolerated(
     max_steps=100,
 )
 
-max_tolerated_nominal_rate = nominal_rate + rate_hikes_tolerated * 0.25
-
 
 # -------------------------
 # Viktigste nøkkeltall først
@@ -963,7 +957,6 @@ with col4:
         format_nok(annual_property_tax),
         help=f"Estimert som kjøpesum × {property_tax_valuation_factor:.0%} × promille for kommunen."
     )
-    
 
 with col5:
     st.metric(
@@ -977,7 +970,6 @@ with col6:
         "Rente-stresstest",
         f"{rate_hikes_tolerated} stk",
         help="Antall rentehopp (0,25 %-poeng økninger) en tåler før månedlig netto kontantstrøm blir negativ."
-    )
     )
 
 st.divider()
@@ -1078,6 +1070,7 @@ with right_top:
 
 st.divider()
 
+
 # -------------------------
 # Låneberegning og kontantstrøm
 # -------------------------
@@ -1147,7 +1140,7 @@ with left:
 with right:
     st.subheader("Kontantstrøm før skatt")
 
-       cashflow_df = pd.DataFrame(
+    cashflow_df = pd.DataFrame(
         {
             "Post": [
                 "Månedlig leie",
@@ -1249,6 +1242,7 @@ with st.expander("Hva betyr tallene?"):
 **Ekstra EK pga. lånebegrensning** = ekstra kontanter du må legge inn hvis maks lån er lavere enn det som trengs for å finansiere kjøpet.
 
 **Totalt EK-behov** = EK-krav + omkostninger + eventuelt ekstra tilskudd fordi lånet ikke dekker nok.
-"""
 
 **Estimert eiendomsskatt** = foreløpig anslått basert på en justert markedsverdi (typisk ca. 85 % av kjøpesum), som brukes som proxy for skattegrunnlag, multiplisert med kommunens promillesats. Beregningen forutsetter sekundærbolig i den angitte kommunen. Dette er en forenklet modell og ikke en offisiell takst.
+"""
+    )
